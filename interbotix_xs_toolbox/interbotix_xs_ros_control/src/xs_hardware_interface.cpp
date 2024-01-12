@@ -214,10 +214,10 @@ return_type XSHardwareInterface::write(const rclcpp::Time &, const rclcpp::Durat
 
   // Noodler does not have a gripper. We'll make custom one later on. So this section causes errors.
 //  // Only publish commands if different than the previous update's commands
-//  if (joint_commands_prev != group_msg.cmd) {
-//    pub_group->publish(group_msg);
-//    joint_commands_prev = group_msg.cmd;
-//  }
+  if (joint_commands_prev != group_msg.cmd) {
+    pub_group->publish(group_msg);
+    joint_commands_prev = group_msg.cmd;
+  }
 //  if (gripper_cmd_prev != gripper_msg.cmd) {
 //    pub_gripper->publish(gripper_msg);
 //    gripper_cmd_prev = gripper_msg.cmd;
