@@ -104,6 +104,7 @@ class InterbotixTurretXS:
             logging_level=logging_level,
             node_name=node_name,
         )
+
         self.turret = InterbotixTurretXSInterface(
             core=self.core,
             turret_name=turret_name,
@@ -126,13 +127,13 @@ class InterbotixTurretXS:
     def run(self) -> None:
         """Thread target."""
         self.ex = MultiThreadedExecutor()
-        self.ex.add_node(self.core)
+        self.ex.add_node(self.core.get_node())
         while rclpy.ok():
             self.ex.spin()
 
     def shutdown(self) -> None:
         """Destroy the node and shut down all threads and processes."""
-        self.core.destroy_node()
+        self.core.get_node().destroy_node()
         rclpy.shutdown()
         self._execution_thread.join()
         time.sleep(0.5)
@@ -182,8 +183,8 @@ class InterbotixTurretXSInterface:
         )
 
         while rclpy.ok() and not self.future_group_info.done():
-            rclpy.spin_until_future_complete(self.core, self.future_group_info)
-            rclpy.spin_once(self.core)
+            rclpy.spin_until_future_complete(self.core.get_node(), self.future_group_info)
+            rclpy.spin_once(self.core.get_node())
 
         group_info: RobotInfo.Response = self.future_group_info.result()
         self.pan_name = group_info.joint_names[0]
@@ -222,7 +223,7 @@ class InterbotixTurretXSInterface:
             tilt_profile_velocity,
             tilt_profile_acceleration
         )
-        self.core.get_logger().info((
+        self.core.get_node().loginfo((
             f'Turret Group Name: {turret_name}\n'
             f'Pan Name: {self.pan_name}, '
             f'Profile Type: {pan_profile_type}, '
@@ -233,7 +234,7 @@ class InterbotixTurretXSInterface:
             f'Profile Velocity: {tilt_profile_velocity:.1f}, '
             f'Profile Acceleration: {tilt_profile_acceleration:.1f}'
         ))
-        self.core.get_logger().info('Initialized InterbotixTurretXSInterface!')
+        self.core.get_node().loginfo('Initialized InterbotixTurretXSInterface!')
 
     def set_trajectory_profile(
         self,
@@ -267,7 +268,7 @@ class InterbotixTurretXSInterface:
                         value=profile_velocity
                     )
                 )
-                self.core.robot_spin_once_until_future_complete(
+                self.core.get_node().executor.spin_once_until_future_complete(
                     future=future_profile_velocity,
                     timeout_sec=0.1
                 )
@@ -280,7 +281,7 @@ class InterbotixTurretXSInterface:
                         value=int(profile_velocity * 1000)
                     )
                 )
-                self.core.robot_spin_once_until_future_complete(
+                self.core.get_node().executor.spin_once_until_future_complete(
                     future=future_profile_velocity,
                     timeout_sec=0.1
                 )
@@ -298,7 +299,7 @@ class InterbotixTurretXSInterface:
                         value=profile_acceleration
                     )
                 )
-                self.core.robot_spin_once_until_future_complete(
+                self.core.get_node().executor.spin_once_until_future_complete(
                     future=future_profile_acceleration,
                     timeout_sec=0.1
                 )
@@ -311,7 +312,7 @@ class InterbotixTurretXSInterface:
                         value=int(profile_acceleration * 1000)
                     )
                 )
-                self.core.robot_spin_once_until_future_complete(
+                self.core.get_node().executor.spin_once_until_future_complete(
                     future=future_profile_acceleration,
                     timeout_sec=0.1
                 )
@@ -354,13 +355,16 @@ class InterbotixTurretXSInterface:
             self.info[joint_name]['command'] = position
             if (self.info[joint_name]['profile_type'] == 'time' and blocking):
                 print(self.info[joint_name]['profile_velocity'])
-                self.core.get_clock().sleep_for(
-                   Duration(nanoseconds=int(self.info[joint_name]['profile_velocity'] * S_TO_NS))
+                self.core.get_node().get_clock().sleep_for(
+                    Duration(nanoseconds=int(
+                        self.info[joint_name]['profile_velocity'] * S_TO_NS))
                 )
             else:
-                self.core.get_clock().sleep_for(Duration(nanoseconds=int(delay * S_TO_NS)))
+                self.core.get_node().get_clock().sleep_for(
+                    Duration(nanoseconds=int(delay * S_TO_NS))
+                )
         else:
-            self.core.get_logger().error(
+            self.core.get_node().logerror(
                 f"Goal position is outside the '{joint_name}' joint's limits. Will not execute."
             )
 
@@ -527,12 +531,12 @@ class InterbotixTurretXSInterface:
                 pan_profile_acceleration
             )
             self.set_trajectory_profile(
-               self.tilt_name,
-               tilt_profile_velocity,
-               tilt_profile_acceleration
+                self.tilt_name,
+                tilt_profile_velocity,
+                tilt_profile_acceleration
             )
             self.core.pub_group.publish(
-               JointGroupCommand(name=self.turret_name, cmd=[pan_position, tilt_position]))
+                JointGroupCommand(name=self.turret_name, cmd=[pan_position, tilt_position]))
             self.info[self.pan_name]['command'] = pan_position
             self.info[self.tilt_name]['command'] = tilt_position
             if (
@@ -540,7 +544,7 @@ class InterbotixTurretXSInterface:
                 (self.info[self.tilt_name]['profile_type'] == 'time') and
                 (blocking)
             ):
-                self.core.get_clock().sleep_for(
+                self.core.get_node().get_clock().sleep_for(
                     Duration(
                         nanoseconds=int(max(
                             self.info[self.pan_name]['profile_velocity'],
@@ -549,9 +553,11 @@ class InterbotixTurretXSInterface:
                     )
                 )
             else:
-                self.core.get_clock().sleep_for(Duration(nanoseconds=int(delay * S_TO_NS)))
+                self.core.get_node().get_clock().sleep_for(
+                    Duration(nanoseconds=int(delay * S_TO_NS))
+                )
         else:
-            self.core.get_logger().error(
+            self.core.get_node().logerror(
                 'One or both goal positions are outside the limits. Will not execute'
             )
 
@@ -584,7 +590,7 @@ class InterbotixTurretXSInterface:
                     profile_acceleration=profile_acceleration
                 )
             )
-            self.core.robot_spin_once_until_future_complete(
+            self.core.get_node().executor.spin_once_until_future_complete(
                 future=future_operating_modes,
                 timeout_sec=0.1
             )
@@ -601,7 +607,7 @@ class InterbotixTurretXSInterface:
                     profile_acceleration=int(profile_acceleration * 1000)
                 )
             )
-            self.core.robot_spin_once_until_future_complete(
+            self.core.get_node().executor.spin_once_until_future_complete(
                 future=future_operating_modes,
                 timeout_sec=0.1
             )

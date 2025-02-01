@@ -104,6 +104,7 @@ class DeclareInterbotixXSLoCoBotRobotDescriptionLaunchArgument(DeclareLaunchArgu
         self,
         *,
         default_value: Optional[SomeSubstitutionsType] = Command([
+            'sh -c "',
             FindExecutable(name='xacro'), ' ',
             PathJoinSubstitution([
                 FindPackageShare('interbotix_xslocobot_descriptions'),
@@ -122,6 +123,9 @@ class DeclareInterbotixXSLoCoBotRobotDescriptionLaunchArgument(DeclareLaunchArgu
             'use_lidar:=', LaunchConfiguration('use_lidar'), ' ',
             'external_urdf_loc:=', LaunchConfiguration('external_urdf_loc'), ' ',
             'hardware_type:=', LaunchConfiguration('hardware_type'), ' ',
+            # Stripping comments from the URDF is necessary for gazebo_ros2_control to parse the
+            # robot_description parameter override
+            '| ', FindExecutable(name='perl'), ' -0777 -pe \'s/<!--.*?-->//gs\'"'
         ]),
         **kwargs
     ) -> None:
