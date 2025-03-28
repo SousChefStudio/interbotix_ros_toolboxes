@@ -41,8 +41,10 @@ from interbotix_common_modules.common_robot import InterbotixRobotNode
 from nav_msgs.msg import Odometry
 from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
+from rclpy.action.client import ClientGoalHandle
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.duration import Duration
+from rclpy.task import Future
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Header
 from tf_transformations import euler_from_quaternion, quaternion_from_euler
@@ -83,20 +85,20 @@ class InterbotixMobileBaseInterface(ABC):
 
         cb_group_mobile_base = ReentrantCallbackGroup()
 
-        self.pub_base_twist = self.core.get_node().create_publisher(
+        self.pub_base_twist = self.core.create_publisher(
             msg_type=Twist,
             topic=topic_cmd_vel,
             qos_profile=1,
             callback_group=cb_group_mobile_base,
         )
-        self.sub_base_states = self.core.get_node().create_subscription(
+        self.sub_base_states = self.core.create_subscription(
             msg_type=JointState,
             topic=topic_base_joint_states,
             callback=self._base_states_cb,
             qos_profile=1,
             callback_group=cb_group_mobile_base,
         )
-        self.sub_base_odom = self.core.get_node().create_subscription(
+        self.sub_base_odom = self.core.create_subscription(
             msg_type=Odometry,
             topic='/mobile_base/odom',
             callback=self._base_odom_cb,
@@ -104,13 +106,13 @@ class InterbotixMobileBaseInterface(ABC):
             callback_group=cb_group_mobile_base,
         )
         self.client_base_nav_to_pose = ActionClient(
-            node=self.core.get_node(),
+            node=self.core,
             action_type=NavigateToPose,
             action_name='navigate_to_pose',
             callback_group=cb_group_mobile_base,
         )
 
-        self.core.get_node().loginfo('Initialized InterbotixMobileBaseInterface!')
+        self.core.loginfo('Initialized InterbotixMobileBaseInterface!')
 
     def command_velocity_xyaw(
         self,
@@ -200,7 +202,7 @@ class InterbotixMobileBaseInterface(ABC):
         :details: note that if 'blocking' is `False`, the function will always return `True`
         """
         if not self.use_nav:
-            self.core.get_node().logerror('`use_nav` set to `False`. Will not execute navigation.')
+            self.core.logerror('`use_nav` set to `False`. Will not execute navigation.')
             return False
         goal = NavigateToPose.Goal(
             pose=self._stamp_pose(pose=goal_pose, frame_id=frame_id),
@@ -212,25 +214,25 @@ class InterbotixMobileBaseInterface(ABC):
             feedback_callback=self._nav_to_pose_feedback_cb,
         )
 
-        self.core.get_node().wait_until_future_complete(future_send_nav_to_pose_goal)
-        self.goal_handle = future_send_nav_to_pose_goal.result()
+        self.core.wait_until_future_complete(future_send_nav_to_pose_goal)
+        self.goal_handle: ClientGoalHandle = future_send_nav_to_pose_goal.result()
 
         if not self.goal_handle.accepted:
-            self.core.get_node().logerror(
+            self.core.logerror(
                 f'Navigation goal [{goal_pose.position.x}, {goal_pose.position.y}] was rejected.'
             )
             return False
-        self.future_nav = self.goal_handle.get_result_async()
+        self.future_nav: Future = self.goal_handle.get_result_async()
         if blocking:
             while not self.is_nav_complete():
                 fb = self.get_nav_to_pose_feedback()
                 if Duration.from_msg(fb.navigation_time > Duration(seconds=self.nav_timeout_sec)):
-                    self.core.get_node().logerror(
+                    self.core.logerror(
                         f'Navigation time ({fb.navigation_time}) exceeds timeout '
                         f'({self.nav_timeout_sec}). Cancelling navigation goal.'
                     )
                     future_cancel_nav_to_pose_goal = self.goal_handle.cancel_goal_async()
-                    self.core.get_node().wait_until_future_complete(
+                    self.core.wait_until_future_complete(
                         future=future_cancel_nav_to_pose_goal
                     )
                 return False
@@ -290,11 +292,12 @@ class InterbotixMobileBaseInterface(ABC):
         """
         if not self.future_nav:
             return True
-        self.core.get_node().wait_until_future_complete(future=self.future_nav, timeout_sec=0.1)
+        self.core.wait_until_future_complete(future=self.future_nav, timeout_sec=0.1)
         if self.future_nav.result():
-            self.nav_status = self.future_nav.result().status
+            result: ClientGoalHandle = self.future_nav.result()
+            self.nav_status = result.status
             if self.nav_status != GoalStatus.STATUS_SUCCEEDED:
-                self.core.get_node().logerror(
+                self.core.logerror(
                     f"Navigation failed with status '{self.nav_status}'."
                 )
                 return True
